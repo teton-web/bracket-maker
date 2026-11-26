@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import type { Tournament, Player, Match, TournamentFormat, TournamentFormatConfig } from '@/types/tournament';
 import {
@@ -12,6 +12,7 @@ import {
   generateSwissNextRound,
   generateKnockoutFromGroups,
   generateKnockoutFromSwiss,
+  isTournamentComplete,
 } from '@/lib/bracket';
 import { isGroupStageComplete, isRoundComplete, countQualifiedPlayers, getPlayerRecord } from '@/lib/standings';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
@@ -59,7 +60,7 @@ interface TournamentContextType {
 const STORAGE_KEY = 'bracket-maker-tournaments';
 
 // Helper to convert date strings back to Date objects and validate
-function hydrateTournaments(data: any[]): Tournament[] {
+function hydrateTournaments(data: unknown): Tournament[] {
   if (!Array.isArray(data)) return [];
   
   const validated = validateTournaments(data);
@@ -75,12 +76,40 @@ function hydrateTournaments(data: any[]): Tournament[] {
 }
 
 // Helper to serialize tournaments for storage
-function serializeTournaments(tournaments: Tournament[]): any[] {
+function serializeTournaments(tournaments: Tournament[]): unknown[] {
   return tournaments.map((t) => ({
     ...t,
     createdAt: t.createdAt.toISOString(),
     completedAt: t.completedAt?.toISOString() || null,
   }));
+}
+
+// Win/loss records derived from played matches (byes don't count). Recomputing
+// from scratch keeps stats correct when a match is re-scored and later results reset.
+function playersWithRecords(players: Player[], matches: Match[]): Player[] {
+  const records = new Map(players.map((p) => [p.id, { wins: 0, losses: 0 }]));
+  for (const match of matches) {
+    if (!match.winnerId || match.isBye || !match.player1Id || !match.player2Id) continue;
+    const loserId = match.winnerId === match.player1Id ? match.player2Id : match.player1Id;
+    const winnerRecord = records.get(match.winnerId);
+    const loserRecord = records.get(loserId);
+    if (winnerRecord) winnerRecord.wins++;
+    if (loserRecord) loserRecord.losses++;
+  }
+  return players.map((p) => ({ ...p, ...records.get(p.id) }));
+}
+
+// Apply new match results: refresh records and set status from whether the
+// tournament is actually finished (an edit can reopen a completed tournament).
+function withMatches(tournament: Tournament, matches: Match[]): Tournament {
+  const isComplete = isTournamentComplete(tournament, matches);
+  return {
+    ...tournament,
+    players: playersWithRecords(tournament.players, matches),
+    matches,
+    status: isComplete ? 'completed' : 'active',
+    completedAt: isComplete ? (tournament.completedAt ?? new Date()) : null,
+  };
 }
 
 const TournamentContext = createContext<TournamentContextType | undefined>(
@@ -92,7 +121,7 @@ export function TournamentProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [rawTournaments, setRawTournaments] = useLocalStorage<any[]>(
+  const [rawTournaments, setRawTournaments] = useLocalStorage<unknown[]>(
     STORAGE_KEY,
     []
   );
@@ -108,8 +137,19 @@ export function TournamentProvider({
     setIsLoading(false);
   }, []);
 
+  // Latest tournaments, including writes made earlier in the same event handler.
+  // Actions read from here instead of the render-time `tournaments`, so calling
+  // two of them in a row (e.g. create then start) doesn't lose the first write.
+  const tournamentsRef = useRef<Tournament[]>(tournaments);
+  useEffect(() => {
+    tournamentsRef.current = tournaments;
+  }, [tournaments]);
+
+  const findTournament = (id: string) => tournamentsRef.current.find((t) => t.id === id);
+
   // Update localStorage when tournaments change
   const updateTournamentsStorage = useCallback((updated: Tournament[]) => {
+    tournamentsRef.current = updated;
     setRawTournaments(serializeTournaments(updated));
   }, [setRawTournaments]);
 
@@ -134,13 +174,13 @@ export function TournamentProvider({
       completedAt: null,
     };
 
-    const updated = [...tournaments, tournament];
+    const updated = [...tournamentsRef.current, tournament];
     updateTournamentsStorage(updated);
     return tournament;
   };
 
   const updateTournament = (tournament: Tournament) => {
-    const updated = tournaments.map((t) =>
+    const updated = tournamentsRef.current.map((t) =>
       t.id === tournament.id ? tournament : t
     );
     updateTournamentsStorage(updated);
@@ -159,7 +199,7 @@ export function TournamentProvider({
   }, [tournaments]);
 
   const startTournament = (id: string) => {
-    const tournament = tournaments.find((t) => t.id === id);
+    const tournament = findTournament(id);
     if (!tournament || tournament.status !== 'draft') return;
 
     const matches = generateBracket(
@@ -178,89 +218,6 @@ export function TournamentProvider({
     updateTournament(updated);
   };
 
-  const checkTournamentComplete = (tournament: Tournament, matches: Match[]): boolean => {
-    const format = tournament.format;
-
-    switch (format) {
-      case 'single-elimination': {
-        // Tournament is complete when the final match has a winner
-        const winnersMatches = matches.filter((m) => m.bracket === 'winners');
-        const maxRound = Math.max(...winnersMatches.map((m) => m.round), 0);
-        const finalMatch = winnersMatches.find((m) => m.round === maxRound);
-        return !!finalMatch?.winnerId;
-      }
-
-      case 'double-elimination': {
-        // Complete when grand finals round 2 has a winner, or round 1 if winners bracket champ wins
-        const grandFinals = matches.filter((m) => m.bracket === 'grand-finals');
-        const gfRound1 = grandFinals.find((m) => m.round === 1);
-        const gfRound2 = grandFinals.find((m) => m.round === 2);
-        
-        // If round 1 is done and winners bracket champ won, tournament is over
-        if (gfRound1?.winnerId === gfRound1?.player1Id) {
-          return true;
-        }
-        // Otherwise need round 2 to complete
-        return !!gfRound2?.winnerId;
-      }
-
-      case 'round-robin': {
-        // Complete when all matches are played
-        return matches.every((m) => m.winnerId !== null);
-      }
-
-      case 'swiss': {
-        // Check if qualification phase is complete
-        const isQualificationMode = tournament.formatConfig?.winsToQualify !== undefined;
-
-        if (isQualificationMode) {
-          // In qualification mode, check if knockout phase is complete
-          if (tournament.swissQualificationComplete) {
-            // Check knockout completion (similar to single-elimination)
-            const knockoutMatches = matches.filter((m) => m.bracket === 'winners');
-            const maxRound = Math.max(...knockoutMatches.map((m) => m.round), 0);
-            const finalMatch = knockoutMatches.find((m) => m.round === maxRound);
-            return !!finalMatch?.winnerId;
-          }
-          // Qualification phase is not complete yet
-          return false;
-        } else {
-          // Fixed rounds mode: complete when all rounds are done
-          const totalRounds = tournament.formatConfig?.numberOfRounds ||
-            Math.ceil(Math.log2(tournament.players.length));
-          const currentRound = tournament.currentSwissRound || 1;
-          return currentRound >= totalRounds && isRoundComplete(matches, currentRound);
-        }
-      }
-
-      case 'group-knockout': {
-        // Complete when knockout phase final has a winner
-        const knockoutMatches = matches.filter(
-          (m) => m.bracket === 'winners' || m.bracket === 'losers' || m.bracket === 'grand-finals'
-        );
-        if (knockoutMatches.length === 0) {
-          return false; // Still in group stage
-        }
-        
-        const knockoutFormat = tournament.formatConfig?.knockoutFormat || 'single-elimination';
-        if (knockoutFormat === 'double-elimination') {
-          const grandFinals = knockoutMatches.filter((m) => m.bracket === 'grand-finals');
-          const gfRound1 = grandFinals.find((m) => m.round === 1);
-          const gfRound2 = grandFinals.find((m) => m.round === 2);
-          if (gfRound1?.winnerId === gfRound1?.player1Id) return true;
-          return !!gfRound2?.winnerId;
-        } else {
-          const maxRound = Math.max(...knockoutMatches.map((m) => m.round), 0);
-          const finalMatch = knockoutMatches.find((m) => m.round === maxRound);
-          return !!finalMatch?.winnerId;
-        }
-      }
-
-      default:
-        return false;
-    }
-  };
-
   const updateMatch = (
     tournamentId: string,
     matchId: string,
@@ -268,79 +225,26 @@ export function TournamentProvider({
     player2Score: number,
     isReScoring: boolean = false
   ) => {
-    const tournament = tournaments.find((t) => t.id === tournamentId);
+    const tournament = findTournament(tournamentId);
     if (!tournament) return;
 
-    let updatedMatches = tournament.matches;
-    const match = updatedMatches.find((m) => m.id === matchId);
-    const previousWinnerId = match?.winnerId || null;
+    // Re-scoring clears everything this match fed into before applying the new result
+    const startingMatches = isReScoring
+      ? resetDownstreamMatches(tournament.matches, matchId)
+      : tournament.matches;
 
-    // If re-scoring, reset downstream matches first
-    if (isReScoring) {
-      updatedMatches = resetDownstreamMatches(updatedMatches, matchId);
-      // Reset stats for previous winner/loser
-      if (previousWinnerId && match) {
-        const previousLoserId =
-          previousWinnerId === match.player1Id
-            ? match.player2Id
-            : match.player1Id;
-        const prevWinner = tournament.players.find((p) => p.id === previousWinnerId);
-        const prevLoser = previousLoserId
-          ? tournament.players.find((p) => p.id === previousLoserId)
-          : null;
-        if (prevWinner) {
-          prevWinner.wins = Math.max(0, (prevWinner.wins || 0) - 1);
-        }
-        if (prevLoser) {
-          prevLoser.losses = Math.max(0, (prevLoser.losses || 0) - 1);
-        }
-      }
-    }
-
-    updatedMatches = updateMatchResult(
-      updatedMatches,
+    const updatedMatches = updateMatchResult(
+      startingMatches,
       matchId,
       player1Score,
       player2Score
     );
 
-    // Update player statistics
-    const updatedMatch = updatedMatches.find((m) => m.id === matchId);
-    if (updatedMatch?.winnerId && updatedMatch.player1Id && updatedMatch.player2Id) {
-      const winner = tournament.players.find((p) => p.id === updatedMatch.winnerId);
-      const loserId =
-        updatedMatch.winnerId === updatedMatch.player1Id
-          ? updatedMatch.player2Id
-          : updatedMatch.player1Id;
-      const loser = tournament.players.find((p) => p.id === loserId);
-
-      if (winner) {
-        winner.wins = (winner.wins || 0) + 1;
-      }
-      if (loser) {
-        loser.losses = (loser.losses || 0) + 1;
-      }
-    }
-
-    // #region agent log
-    fetch('http://127.0.0.1:7254/ingest/87bd214f-3162-4f5e-83f2-30c0aab71339',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'contexts/TournamentContext.tsx:326',message:'updateMatch player stats',data:{matchId:matchId.slice(-6),playerWinCounts:tournament.players.map(p=>({id:p.id.slice(-4),name:p.name,wins:p.wins,losses:p.losses}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'F'})}).catch(()=>{});
-    // #endregion
-
-    const isComplete = checkTournamentComplete(tournament, updatedMatches);
-
-    const updated: Tournament = {
-      ...tournament,
-      players: tournament.players,
-      matches: updatedMatches,
-      status: isComplete ? 'completed' : tournament.status,
-      completedAt: isComplete ? new Date() : tournament.completedAt,
-    };
-
-    updateTournament(updated);
+    updateTournament(withMatches(tournament, updatedMatches));
   };
 
   const deleteTournament = (id: string) => {
-    const updated = tournaments.filter((t) => t.id !== id);
+    const updated = tournamentsRef.current.filter((t) => t.id !== id);
     updateTournamentsStorage(updated);
     if (currentTournament?.id === id) {
       setCurrentTournamentState(null);
@@ -353,7 +257,7 @@ export function TournamentProvider({
     player1Id: string | null,
     player2Id: string | null
   ) => {
-    const tournament = tournaments.find((t) => t.id === tournamentId);
+    const tournament = findTournament(tournamentId);
     if (!tournament) return;
 
     const updatedMatches = overrideMatchPlayersLib(
@@ -378,7 +282,7 @@ export function TournamentProvider({
     winnerId: string,
     isForfeited: boolean = false
   ) => {
-    const tournament = tournaments.find((t) => t.id === tournamentId);
+    const tournament = findTournament(tournamentId);
     if (!tournament) return;
 
     const updatedMatches = forceMatchWinnerLib(
@@ -388,51 +292,16 @@ export function TournamentProvider({
       isForfeited
     );
 
-    // Update player statistics
-    const updatedMatch = updatedMatches.find((m) => m.id === matchId);
-    if (updatedMatch?.winnerId && updatedMatch.player1Id && updatedMatch.player2Id) {
-      const winner = tournament.players.find((p) => p.id === updatedMatch.winnerId);
-      const loserId =
-        updatedMatch.winnerId === updatedMatch.player1Id
-          ? updatedMatch.player2Id
-          : updatedMatch.player1Id;
-      const loser = tournament.players.find((p) => p.id === loserId);
-
-      if (winner) {
-        winner.wins = (winner.wins || 0) + 1;
-      }
-      if (loser) {
-        loser.losses = (loser.losses || 0) + 1;
-      }
-    }
-
-    const isComplete = checkTournamentComplete(tournament, updatedMatches);
-
-    const updated: Tournament = {
-      ...tournament,
-      players: tournament.players,
-      matches: updatedMatches,
-      status: isComplete ? 'completed' : tournament.status,
-      completedAt: isComplete ? new Date() : tournament.completedAt,
-    };
-
-    updateTournament(updated);
+    updateTournament(withMatches(tournament, updatedMatches));
     toast.success(isForfeited ? 'Match forfeited' : 'Winner declared');
   };
 
   const advanceSwissRound = (tournamentId: string) => {
-    // #region agent log
-    fetch('http://127.0.0.1:7254/ingest/87bd214f-3162-4f5e-83f2-30c0aab71339',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'contexts/TournamentContext.tsx:422',message:'advanceSwissRound entry',data:{tournamentId},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
-    const tournament = tournaments.find((t) => t.id === tournamentId);
+    const tournament = findTournament(tournamentId);
     if (!tournament || tournament.format !== 'swiss') return;
 
     const currentRound = tournament.currentSwissRound || 1;
     const isQualificationMode = tournament.formatConfig?.winsToQualify !== undefined;
-
-    // #region agent log
-    fetch('http://127.0.0.1:7254/ingest/87bd214f-3162-4f5e-83f2-30c0aab71339',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'contexts/TournamentContext.tsx:428',message:'Swiss mode check (post-fix)',data:{currentRound,isQualificationMode,formatConfig:tournament.formatConfig},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
 
     // Check if current round is complete
     if (!isRoundComplete(tournament.matches, currentRound)) {
@@ -451,10 +320,6 @@ export function TournamentProvider({
       );
 
       const targetQualifiers = tournament.formatConfig?.qualifyingPlayers || 8;
-
-      // #region agent log
-      fetch('http://127.0.0.1:7254/ingest/87bd214f-3162-4f5e-83f2-30c0aab71339',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'contexts/TournamentContext.tsx:441',message:'Qualification advance check (fixed)',data:{qualifiedPlayersCount,targetQualifiers,currentRound},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
 
       if (qualifiedPlayersCount >= targetQualifiers) {
         toast.info(`Qualification target reached (${qualifiedPlayersCount}/${targetQualifiers}). Use "Advance to Knockout" instead.`);
@@ -507,7 +372,7 @@ export function TournamentProvider({
   };
 
   const advanceSwissToKnockout = (tournamentId: string) => {
-    const tournament = tournaments.find((t) => t.id === tournamentId);
+    const tournament = findTournament(tournamentId);
     if (!tournament || tournament.format !== 'swiss') return;
 
     const isQualificationMode = tournament.formatConfig?.winsToQualify !== undefined;
@@ -554,7 +419,7 @@ export function TournamentProvider({
   };
 
   const advanceToKnockout = (tournamentId: string) => {
-    const tournament = tournaments.find((t) => t.id === tournamentId);
+    const tournament = findTournament(tournamentId);
     if (!tournament || tournament.format !== 'group-knockout') return;
 
     // Check if group stage is complete

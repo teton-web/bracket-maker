@@ -52,10 +52,6 @@ export function SwissView({
   const currentRoundMatches = matches.filter((m) => m.round === currentRound);
   const currentRoundComplete = isRoundComplete(matches, currentRound);
 
-  // #region agent log
-  fetch('http://127.0.0.1:7254/ingest/87bd214f-3162-4f5e-83f2-30c0aab71339',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'components/bracket/SwissView.tsx:55',message:'SwissView render',data:{isQualificationMode,winsToQualify,qualifyingPlayers,currentRound,totalRounds},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-  // #endregion
-
   // Calculate qualified players for qualification mode (using match data for accuracy)
   const qualifiedPlayersCount = useMemo(() => {
     if (!isQualificationMode) return 0;
@@ -74,10 +70,6 @@ export function SwissView({
   const isComplete = isQualificationMode
     ? qualificationComplete
     : currentRound >= totalRounds && currentRoundComplete;
-
-  // #region agent log
-  fetch('http://127.0.0.1:7254/ingest/87bd214f-3162-4f5e-83f2-30c0aab71339',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'components/bracket/SwissView.tsx:75',message:'SwissView states (fixed)',data:{canAdvance,qualificationComplete,isComplete,qualifiedPlayersCount,qualifyingPlayers,winsToQualify},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{});
-  // #endregion
 
   return (
     <div className="space-y-8">

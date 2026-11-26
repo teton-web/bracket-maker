@@ -163,8 +163,13 @@ function ReactFlowContent({
 
   // Calculate completion stats
   const completionStats = useMemo(() => {
-    const completed = matches.filter(m => m.winnerId).length;
-    const total = matches.length;
+    // Skip matches nobody can reach (empty bye slots) and an unneeded bracket reset
+    const playable = matches.filter(m =>
+      !(m.isBye && !m.winnerId) &&
+      !(m.bracket === 'grand-finals' && m.round === 2 && !m.player1Id && !m.player2Id)
+    );
+    const completed = playable.filter(m => m.winnerId).length;
+    const total = playable.length;
     const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
     return { completed, total, percent };
   }, [matches]);
