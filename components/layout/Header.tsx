@@ -9,6 +9,7 @@ import { useTournament } from '@/contexts/TournamentContext';
 import { cn } from '@/lib/utils';
 import { downloadBackup, parseBackupFile, readFileAsText, type BackupData } from '@/lib/backup';
 import { BackupRestoreModal } from '@/components/backup/BackupRestoreModal';
+import { AccountMenu } from '@/components/auth/AccountMenu';
 
 export function Header() {
   const { currentTournament } = useTournament();
@@ -154,6 +155,7 @@ export function Header() {
               </div>
             </div>
           )}
+          <AccountMenu layout="bar" />
         </div>
 
         {/* Mobile Menu Button */}
@@ -235,6 +237,9 @@ export function Header() {
             className="lg:hidden border-t border-[var(--border-dim)] bg-[var(--bg-card)]"
           >
             <div className="mx-auto max-w-7xl px-4 py-4 space-y-1">
+              <div className="border-b border-[var(--border-dim)] pb-3">
+                <AccountMenu layout="menu" />
+              </div>
               {navLinks.map((link, index) => (
                 <motion.div
                   key={link.href}
