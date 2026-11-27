@@ -16,7 +16,7 @@ import {
 } from '@/lib/bracket';
 import { isGroupStageComplete, isRoundComplete, countQualifiedPlayers, getPlayerRecord } from '@/lib/standings';
 import { useLocalStorage } from '@/hooks/useLocalStorage';
-import { validateTournaments } from '@/lib/validators';
+import { partitionTournaments } from '@/lib/validators';
 import { toast } from 'sonner';
 
 interface TournamentContextType {
@@ -58,22 +58,6 @@ interface TournamentContextType {
 }
 
 const STORAGE_KEY = 'bracket-maker-tournaments';
-
-// Helper to convert date strings back to Date objects and validate
-function hydrateTournaments(data: unknown): Tournament[] {
-  if (!Array.isArray(data)) return [];
-  
-  const validated = validateTournaments(data);
-  const invalidCount = data.length - validated.length;
-  
-  if (invalidCount > 0) {
-    toast.warning(
-      `Found ${invalidCount} invalid tournament${invalidCount > 1 ? 's' : ''} in storage. They have been removed.`
-    );
-  }
-  
-  return validated;
-}
 
 // Helper to serialize tournaments for storage
 function serializeTournaments(tournaments: Tournament[]): unknown[] {
@@ -129,8 +113,30 @@ export function TournamentProvider({
   const [currentTournament, setCurrentTournamentState] =
     useState<Tournament | null>(null);
 
-  // Hydrate tournaments from localStorage - memoize to prevent recreation on every render
-  const tournaments = useMemo(() => hydrateTournaments(rawTournaments), [rawTournaments]);
+  // Hydrate tournaments from localStorage - memoize to prevent recreation on every render.
+  // Entries that fail validation are set aside, not dropped: they are written back
+  // unchanged on every save, so a bad or newer-format record is never erased.
+  const { valid: tournaments, invalid: invalidEntries } = useMemo(
+    () => partitionTournaments(rawTournaments),
+    [rawTournaments]
+  );
+  const invalidEntriesRef = useRef<unknown[]>(invalidEntries);
+  const warnedAboutInvalidRef = useRef(false);
+  useEffect(() => {
+    invalidEntriesRef.current = invalidEntries;
+    if (invalidEntries.length > 0 && !warnedAboutInvalidRef.current) {
+      warnedAboutInvalidRef.current = true;
+      const count = invalidEntries.length;
+      console.warn('Saved tournaments that failed validation (kept in storage):', invalidEntries);
+      // Deferred so the Toaster (mounted after this provider) has subscribed first
+      setTimeout(() => {
+        toast.warning(
+          `${count} saved tournament${count > 1 ? 's' : ''} couldn't be loaded. ` +
+            `${count > 1 ? "They're" : "It's"} kept in storage unchanged and included in backups.`
+        );
+      }, 0);
+    }
+  }, [invalidEntries]);
 
   useEffect(() => {
     // Mark as loaded after initial hydration
@@ -150,7 +156,7 @@ export function TournamentProvider({
   // Update localStorage when tournaments change
   const updateTournamentsStorage = useCallback((updated: Tournament[]) => {
     tournamentsRef.current = updated;
-    setRawTournaments(serializeTournaments(updated));
+    setRawTournaments([...serializeTournaments(updated), ...invalidEntriesRef.current]);
   }, [setRawTournaments]);
 
   const createTournament = (

@@ -244,12 +244,17 @@ function linkWinnersLosersToLosersBracket(
     }
   });
 
+  // Later drop-downs cross over: winners match i sends its loser to losers match
+  // i ^ 1 (1<->2, 3<->4, ...). The losers-bracket survivor waiting there came up
+  // from the neighbouring part of the bracket, so the dropping player's first
+  // losers-bracket opponent is never someone they could already have played
+  // (unavoidable only when a round has a single match, e.g. the winners final).
   for (let round = 2; round <= rounds; round++) {
     const winnersRoundMatches = winnersMatches.filter((m) => m.round === round);
     const targetLosersMatches = losersMatches.filter((m) => m.round === (round - 1) * 2);
 
     winnersRoundMatches.forEach((match, index) => {
-      const target = targetLosersMatches[index];
+      const target = targetLosersMatches[index ^ 1] ?? targetLosersMatches[index];
       if (target) {
         match.loserNextMatchId = target.id;
         match.loserNextMatchPosition = target.position;
@@ -404,20 +409,28 @@ export function resolveByes(matches: Match[]): Match[] {
 // COMPLETION
 // ============================================================================
 
-function isSingleEliminationComplete(matches: Match[]): boolean {
+export function getSingleEliminationFinalMatch(matches: Match[]): Match | null {
   const winnersMatches = matches.filter((m) => m.bracket === 'winners');
-  if (winnersMatches.length === 0) return false;
+  if (winnersMatches.length === 0) return null;
   const maxRound = Math.max(...winnersMatches.map((m) => m.round));
-  return winnersMatches.some((m) => m.round === maxRound && !!m.winnerId);
+  return winnersMatches.find((m) => m.round === maxRound && !!m.winnerId) ?? null;
+}
+
+export function getDoubleEliminationFinalMatch(matches: Match[]): Match | null {
+  const grandFinal = matches.find((m) => m.bracket === 'grand-finals' && m.round === 1);
+  const bracketReset = matches.find((m) => m.bracket === 'grand-finals' && m.round === 2);
+  if (!grandFinal?.winnerId) return null;
+  // The winners-bracket champion (player 1) only needs to win once.
+  if (grandFinal.winnerId === grandFinal.player1Id) return grandFinal;
+  return bracketReset?.winnerId ? bracketReset : null;
+}
+
+function isSingleEliminationComplete(matches: Match[]): boolean {
+  return getSingleEliminationFinalMatch(matches) !== null;
 }
 
 function isDoubleEliminationComplete(matches: Match[]): boolean {
-  const grandFinal = matches.find((m) => m.bracket === 'grand-finals' && m.round === 1);
-  const bracketReset = matches.find((m) => m.bracket === 'grand-finals' && m.round === 2);
-  if (!grandFinal?.winnerId) return false;
-  // The winners-bracket champion (player 1) only needs to win once.
-  if (grandFinal.winnerId === grandFinal.player1Id) return true;
-  return !!bracketReset?.winnerId;
+  return getDoubleEliminationFinalMatch(matches) !== null;
 }
 
 export function isTournamentComplete(tournament: Tournament, matches: Match[]): boolean {

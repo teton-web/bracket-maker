@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState, useImperativeHandle, forwardRef, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState, useImperativeHandle, forwardRef, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -29,6 +29,7 @@ import { StandingsNode } from './nodes/StandingsNode';
 import { BracketEdge } from './edges/BracketEdge';
 import { Button } from '../ui/Button';
 import { cn } from '@/lib/utils';
+import { countQualifiedPlayers } from '@/lib/standings';
 
 // Define custom node types
 const nodeTypes: NodeTypes = {
@@ -106,19 +107,30 @@ function ReactFlowContent({
       throw new Error('React Flow container not found');
     }
 
-    return toBlob(container, {
-      backgroundColor,
-      quality,
-      pixelRatio: 2,
-      // Include canvas elements which React Flow uses
-      skipFonts: false,
-      // Don't filter out canvas elements
-      filter: () => true,
-    });
+    const capture = (skipFonts: boolean) =>
+      toBlob(container, {
+        backgroundColor,
+        quality,
+        pixelRatio: 2,
+        skipFonts,
+        // Don't filter out canvas elements
+        filter: () => true,
+      });
+
+    // Embedding the web fonts never finishes in some browsers (Firefox), so give it a
+    // few seconds and fall back to an image rendered with the fallback fonts.
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Font embedding timed out')), 5000)
+    );
+    try {
+      return await Promise.race([capture(false), timeout]);
+    } catch {
+      return capture(true);
+    }
   }, [fitView]);
 
   // Notify parent component that export function is ready
-  useMemo(() => {
+  useEffect(() => {
     onExportReady(exportToBlob);
   }, [exportToBlob, onExportReady]);
 
@@ -144,7 +156,7 @@ function ReactFlowContent({
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
   // Update nodes/edges when layout changes
-  useMemo(() => {
+  useEffect(() => {
     setNodes(initialNodes);
     setEdges(initialEdges);
   }, [initialNodes, initialEdges, setNodes, setEdges]);
@@ -174,24 +186,35 @@ function ReactFlowContent({
     return { completed, total, percent };
   }, [matches]);
 
-  // Determine if we need action buttons
-  const showAdvanceButton = useMemo(() => {
+  // Which "next stage" action the panel offers, if any
+  const advanceAction = useMemo((): { label: string; onClick: () => void } | null => {
     if (format === 'swiss' && !swissQualificationComplete) {
-      // Check if current round is complete
       const currentRoundMatches = matches.filter(m => m.round === currentSwissRound && m.bracket === 'swiss');
-      const allComplete = currentRoundMatches.every(m => m.winnerId);
-      return allComplete && onAdvanceSwissRound;
+      if (!currentRoundMatches.every(m => m.winnerId)) return null;
+
+      // Qualification mode moves on to the knockout once enough players have qualified
+      const winsToQualify = formatConfig?.winsToQualify;
+      if (winsToQualify !== undefined) {
+        const target = formatConfig?.qualifyingPlayers || 8;
+        if (countQualifiedPlayers(matches, players, winsToQualify) >= target) {
+          return onAdvanceToKnockout ? { label: 'Advance to Knockout', onClick: onAdvanceToKnockout } : null;
+        }
+      }
+      return onAdvanceSwissRound
+        ? { label: `Generate Round ${currentSwissRound + 1}`, onClick: onAdvanceSwissRound }
+        : null;
     }
     if (format === 'group-knockout' && !groupStageComplete) {
       const groupMatches = matches.filter(m => m.bracket === 'group');
-      const allComplete = groupMatches.every(m => m.winnerId);
-      return allComplete && onAdvanceToKnockout;
+      if (groupMatches.every(m => m.winnerId) && onAdvanceToKnockout) {
+        return { label: 'Advance to Knockout', onClick: onAdvanceToKnockout };
+      }
     }
-    return false;
-  }, [format, matches, currentSwissRound, swissQualificationComplete, groupStageComplete, onAdvanceSwissRound, onAdvanceToKnockout]);
+    return null;
+  }, [format, formatConfig, matches, players, currentSwissRound, swissQualificationComplete, groupStageComplete, onAdvanceSwissRound, onAdvanceToKnockout]);
 
   return (
-    <div className="w-full h-[600px] rounded-xl overflow-hidden esports-card">
+    <div data-testid="bracket-container" className="w-full h-[600px] rounded-xl overflow-hidden esports-card">
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -286,21 +309,21 @@ function ReactFlowContent({
             </div>
 
             {/* Advance button */}
-            {showAdvanceButton && (
+            {advanceAction && (
               <Button
-                onClick={format === 'swiss' ? onAdvanceSwissRound : onAdvanceToKnockout}
+                onClick={advanceAction.onClick}
                 variant="primary"
                 size="sm"
                 className="w-full mt-2"
               >
-                {format === 'swiss' ? `Generate Round ${currentSwissRound + 1}` : 'Advance to Knockout'}
+                {advanceAction.label}
               </Button>
             )}
           </motion.div>
         </Panel>
 
         {/* Legend Panel */}
-        <Panel position="bottom-left" className="!m-3">
+        <Panel position="top-right" className="!m-3">
           <motion.div
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}

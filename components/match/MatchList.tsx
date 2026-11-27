@@ -31,16 +31,19 @@ export function MatchList({
   );
 
   const bracketOrder: Array<{ bracket: string; label: string }> = [
+    { bracket: 'group', label: 'Group Stage' },
+    { bracket: 'round-robin', label: 'Round Robin' },
+    { bracket: 'swiss', label: 'Swiss Rounds' },
     { bracket: 'winners', label: 'Winners Bracket' },
     { bracket: 'losers', label: 'Losers Bracket' },
     { bracket: 'grand-finals', label: 'Grand Finals' },
   ];
 
   return (
-    <div className="space-y-8">
+    <div data-testid="match-list" className="space-y-8">
       {bracketOrder.map(({ bracket, label }) => {
         const bracketMatches = Object.entries(groupedMatches)
-          .filter(([key]) => key.startsWith(bracket))
+          .filter(([key]) => key.startsWith(`${bracket}-r`))
           .flatMap(([, matches]) => matches)
           .sort((a, b) => {
             if (a.round !== b.round) return a.round - b.round;
@@ -62,7 +65,7 @@ export function MatchList({
                 return (
                   <div key={round}>
                     <h3 className="mb-3 text-lg font-semibold">
-                      Round {round}
+                      {bracket === 'grand-finals' && round === 2 ? 'Round 2 (Bracket Reset)' : `Round ${round}`}
                     </h3>
                     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                       {roundMatches.map((match) => (

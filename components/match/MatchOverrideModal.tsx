@@ -101,10 +101,11 @@ export function MatchOverrideModal({
               </p>
 
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label htmlFor="override-player1" className="mb-2 block text-sm font-medium">
                   Player 1 (Top Slot)
                 </label>
                 <select
+                  id="override-player1"
                   value={selectedPlayer1 || ''}
                   onChange={(e) => setSelectedPlayer1(e.target.value || null)}
                   className="w-full rounded border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700"
@@ -119,10 +120,11 @@ export function MatchOverrideModal({
               </div>
 
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label htmlFor="override-player2" className="mb-2 block text-sm font-medium">
                   Player 2 (Bottom Slot)
                 </label>
                 <select
+                  id="override-player2"
                   value={selectedPlayer2 || ''}
                   onChange={(e) => setSelectedPlayer2(e.target.value || null)}
                   className="w-full rounded border border-gray-300 px-3 py-2 dark:border-gray-600 dark:bg-gray-700"

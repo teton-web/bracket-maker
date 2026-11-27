@@ -78,6 +78,11 @@ function MatchNodeComponent({ data, selected }: NodeProps & { data: MatchNodeDat
       />
       
       <motion.div
+        data-testid="match-card"
+        data-match-id={match.id}
+        data-bracket={match.bracket}
+        data-round={match.round}
+        data-status={match.isBye ? 'bye' : isComplete ? 'completed' : canPlay ? 'ready' : 'pending'}
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
         whileHover={canPlay || canEdit ? { scale: 1.03 } : {}}
@@ -86,7 +91,7 @@ function MatchNodeComponent({ data, selected }: NodeProps & { data: MatchNodeDat
           'w-[200px] rounded-lg p-3 cursor-pointer select-none',
           'esports-card transition-all duration-200',
           isActive && 'border-glow-animate',
-          isComplete && 'ring-1 ring-[var(--neon-green)]/30',
+          isComplete && 'completed ring-1 ring-[var(--neon-green)]/30',
           selected && 'ring-2 ring-[var(--neon-cyan)]',
           (canPlay || canEdit) && 'hover:border-[var(--neon-cyan)]/50'
         )}
@@ -105,7 +110,7 @@ function MatchNodeComponent({ data, selected }: NodeProps & { data: MatchNodeDat
               {getBracketLabel()}
             </span>
             <span className="text-[10px] text-[var(--text-muted)] font-medium">
-              R{match.round}
+              {match.bracket === 'grand-finals' && match.round === 2 ? 'R2 · Reset' : `R${match.round}`}
             </span>
           </div>
           
@@ -115,8 +120,10 @@ function MatchNodeComponent({ data, selected }: NodeProps & { data: MatchNodeDat
             </span>
           )}
           
-          {onOverrideClick && !isComplete && (
+          {onOverrideClick && !isComplete && !match.isBye && (
             <button
+              data-testid="match-override-button"
+              aria-label="Match override options"
               onClick={(e) => {
                 e.stopPropagation();
                 onOverrideClick(match);

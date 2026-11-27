@@ -2,9 +2,9 @@ import dagre from 'dagre';
 import type { Node, Edge } from '@xyflow/react';
 import type { Match, Player, TournamentFormat, TournamentFormatConfig } from '@/types/tournament';
 
-// Node dimensions
-const MATCH_NODE_WIDTH = 220;
-const MATCH_NODE_HEIGHT = 100;
+// Node dimensions (sized to match actual rendered MatchNode cards so nodes never overlap)
+export const MATCH_NODE_WIDTH = 220;
+export const MATCH_NODE_HEIGHT = 164;
 const CHAMPION_NODE_WIDTH = 280;
 const CHAMPION_NODE_HEIGHT = 160;
 const GROUP_NODE_WIDTH = 320;
@@ -15,8 +15,16 @@ const STANDINGS_NODE_WIDTH = 350;
 const STANDINGS_NODE_HEIGHT = 400;
 
 // Spacing
-const HORIZONTAL_SPACING = 80;
-const VERTICAL_SPACING = 40;
+const HORIZONTAL_SPACING = 90;
+const VERTICAL_SPACING = 36;
+
+function isDeadMatch(match: Match): boolean {
+  return match.isBye && !match.winnerId;
+}
+
+function hasRealLoser(match: Match): boolean {
+  return Boolean(match.winnerId && !match.isBye && match.player1Id && match.player2Id);
+}
 
 export interface BracketNode extends Node {
   data: {
@@ -76,18 +84,18 @@ export function layoutSingleElimination(
       .sort((a, b) => a.position - b.position);
   }
   
-  // Position matches
+  // Position matches: Round 1 has spacingMultiplier = 1, and each later round
+  // doubles spacing so every match sits vertically centered between its two feeders.
+  const colPitch = MATCH_NODE_WIDTH + HORIZONTAL_SPACING;
+  const rowPitch = MATCH_NODE_HEIGHT + VERTICAL_SPACING;
   for (let round = 1; round <= maxRound; round++) {
     const roundMatches = matchesByRound[round] || [];
-    const totalMatchesInRound = roundMatches.length;
-    const roundHeight = totalMatchesInRound * (MATCH_NODE_HEIGHT + VERTICAL_SPACING);
+    const spacingMultiplier = Math.pow(2, round - 1);
     
     roundMatches.forEach((match, index) => {
-      const x = (round - 1) * (MATCH_NODE_WIDTH + HORIZONTAL_SPACING);
-      // Center matches vertically, with more spacing for earlier rounds
-      const spacingMultiplier = Math.pow(2, maxRound - round);
-      const y = index * (MATCH_NODE_HEIGHT + VERTICAL_SPACING) * spacingMultiplier + 
-                ((spacingMultiplier - 1) * (MATCH_NODE_HEIGHT + VERTICAL_SPACING)) / 2;
+      const x = (round - 1) * colPitch;
+      const y = index * rowPitch * spacingMultiplier +
+                ((spacingMultiplier - 1) * rowPitch) / 2;
       
       nodes.push({
         id: match.id,
@@ -100,8 +108,8 @@ export function layoutSingleElimination(
         },
       });
       
-      // Create edge to next match
-      if (match.nextMatchId && match.winnerId) {
+      // Create edge to next match (dimmed structural track while pending, glowing when decided)
+      if (match.nextMatchId && !isDeadMatch(match)) {
         edges.push({
           id: `${match.id}->${match.nextMatchId}`,
           source: match.id,
@@ -110,7 +118,7 @@ export function layoutSingleElimination(
           targetHandle: 'left',
           type: 'bracketEdge',
           data: {
-            isWinnerPath: true,
+            isWinnerPath: Boolean(match.winnerId),
             isAnimated: false,
           },
         });
@@ -123,7 +131,7 @@ export function layoutSingleElimination(
     const finalMatch = winnersMatches.find(m => m.round === maxRound);
     if (finalMatch) {
       const x = maxRound * (MATCH_NODE_WIDTH + HORIZONTAL_SPACING);
-      const y = (nodes.find(n => n.id === finalMatch.id)?.position.y || 0) - 30;
+      const y = (nodes.find(n => n.id === finalMatch.id)?.position.y || 0);
       
       nodes.push({
         id: 'champion',
@@ -171,14 +179,20 @@ export function layoutDoubleElimination(
   
   const winnersMatches = matches.filter(m => m.bracket === 'winners');
   const losersMatches = matches.filter(m => m.bracket === 'losers');
-  const grandFinalsMatches = matches.filter(m => m.bracket === 'grand-finals');
+  const grandFinalsMatches = matches
+    .filter(m => m.bracket === 'grand-finals')
+    .sort((a, b) => a.round - b.round);
   
   const maxWinnersRound = Math.max(...winnersMatches.map(m => m.round), 0);
   const maxLosersRound = Math.max(...losersMatches.map(m => m.round), 0);
   
-  // Calculate winners bracket height for offset
-  const winnersHeight = Math.pow(2, maxWinnersRound - 1) * (MATCH_NODE_HEIGHT + VERTICAL_SPACING);
-  const losersOffsetY = winnersHeight + 100;
+  const colPitch = MATCH_NODE_WIDTH + HORIZONTAL_SPACING;
+  const rowPitch = MATCH_NODE_HEIGHT + VERTICAL_SPACING;
+  
+  // Calculate winners bracket height for losers offset
+  const winnersRound1Count = Math.max(1, winnersMatches.filter(m => m.round === 1).length);
+  const winnersHeight = winnersRound1Count * rowPitch;
+  const losersOffsetY = winnersHeight + 120;
   
   // Layout winners bracket
   for (let round = 1; round <= maxWinnersRound; round++) {
@@ -187,10 +201,10 @@ export function layoutDoubleElimination(
       .sort((a, b) => a.position - b.position);
     
     roundMatches.forEach((match, index) => {
-      const x = (round - 1) * (MATCH_NODE_WIDTH + HORIZONTAL_SPACING);
-      const spacingMultiplier = Math.pow(2, maxWinnersRound - round);
-      const y = index * (MATCH_NODE_HEIGHT + VERTICAL_SPACING) * spacingMultiplier +
-                ((spacingMultiplier - 1) * (MATCH_NODE_HEIGHT + VERTICAL_SPACING)) / 2;
+      const x = (round - 1) * colPitch;
+      const spacingMultiplier = Math.pow(2, round - 1);
+      const y = index * rowPitch * spacingMultiplier +
+                ((spacingMultiplier - 1) * rowPitch) / 2;
       
       nodes.push({
         id: match.id,
@@ -199,8 +213,8 @@ export function layoutDoubleElimination(
         data: { match, players, ...callbacks },
       });
       
-      // Winner edge
-      if (match.nextMatchId && match.winnerId) {
+      // Winner advancement edge
+      if (match.nextMatchId && !isDeadMatch(match)) {
         edges.push({
           id: `${match.id}->${match.nextMatchId}`,
           source: match.id,
@@ -208,12 +222,12 @@ export function layoutDoubleElimination(
           sourceHandle: 'right',
           targetHandle: 'left',
           type: 'bracketEdge',
-          data: { isWinnerPath: true, isAnimated: false },
+          data: { isWinnerPath: Boolean(match.winnerId), isAnimated: false },
         });
       }
       
-      // Loser edge (to losers bracket)
-      if (match.loserNextMatchId && match.winnerId) {
+      // Loser drop-down edge (only when a real match produced a loser, never on byes)
+      if (match.loserNextMatchId && hasRealLoser(match)) {
         edges.push({
           id: `${match.id}->${match.loserNextMatchId}-loser`,
           source: match.id,
@@ -227,17 +241,22 @@ export function layoutDoubleElimination(
     });
   }
   
-  // Layout losers bracket
+  // Layout losers bracket: each losers round gets its own column so odd/even
+  // rounds never stack on top of each other, and pairs of rounds (1-2, 3-4, ...)
+  // double their vertical spacing as match counts halve.
   for (let round = 1; round <= maxLosersRound; round++) {
     const roundMatches = losersMatches
       .filter(m => m.round === round)
       .sort((a, b) => a.position - b.position);
     
+    const pairIndex = Math.floor((round - 1) / 2);
+    const spacingMultiplier = Math.pow(2, pairIndex);
+    
     roundMatches.forEach((match, index) => {
-      // Losers bracket is compressed horizontally
-      const x = Math.floor((round - 1) / 2) * (MATCH_NODE_WIDTH + HORIZONTAL_SPACING);
-      const roundMatchCount = roundMatches.length;
-      const y = losersOffsetY + index * (MATCH_NODE_HEIGHT + VERTICAL_SPACING * 0.5);
+      const x = (round - 1) * colPitch;
+      const y = losersOffsetY +
+                index * rowPitch * spacingMultiplier +
+                ((spacingMultiplier - 1) * rowPitch) / 2;
       
       nodes.push({
         id: match.id,
@@ -246,7 +265,7 @@ export function layoutDoubleElimination(
         data: { match, players, ...callbacks },
       });
       
-      if (match.nextMatchId && match.winnerId) {
+      if (match.nextMatchId && !isDeadMatch(match)) {
         edges.push({
           id: `${match.id}->${match.nextMatchId}`,
           source: match.id,
@@ -254,64 +273,84 @@ export function layoutDoubleElimination(
           sourceHandle: 'right',
           targetHandle: 'left',
           type: 'bracketEdge',
-          data: { isWinnerPath: true, isAnimated: false },
+          data: { isWinnerPath: Boolean(match.winnerId), isAnimated: false },
         });
       }
     });
   }
   
-  // Layout grand finals
-  const gfX = Math.max(maxWinnersRound, Math.ceil(maxLosersRound / 2)) * (MATCH_NODE_WIDTH + HORIZONTAL_SPACING);
-  
-  grandFinalsMatches.forEach((match, index) => {
-    const y = losersOffsetY / 2 - MATCH_NODE_HEIGHT / 2 + index * (MATCH_NODE_HEIGHT + VERTICAL_SPACING);
-    
+  // Layout grand finals to the right of whichever bracket has more columns
+  const gfX = Math.max(maxWinnersRound, maxLosersRound) * colPitch;
+  const winnersFinalMatch = winnersMatches.find(m => m.round === maxWinnersRound);
+  const losersFinalMatch = losersMatches.find(m => m.round === maxLosersRound);
+  const winnersFinalNode = winnersFinalMatch ? nodes.find(n => n.id === winnersFinalMatch.id) : undefined;
+  const losersFinalNode = losersFinalMatch ? nodes.find(n => n.id === losersFinalMatch.id) : undefined;
+  const gfY = winnersFinalNode && losersFinalNode
+    ? (winnersFinalNode.position.y + losersFinalNode.position.y) / 2
+    : winnersFinalNode?.position.y ?? 0;
+
+  const gf1 = grandFinalsMatches.find(m => m.round === 1);
+  const gf2 = grandFinalsMatches.find(m => m.round === 2);
+  const finishedWithoutReset = Boolean(gf1?.winnerId && gf1.winnerId === gf1.player1Id);
+  const resetTriggered = Boolean(gf1?.winnerId && gf1.winnerId === gf1.player2Id);
+
+  if (gf1) {
     nodes.push({
-      id: match.id,
+      id: gf1.id,
       type: 'matchNode',
-      position: { x: gfX + index * (MATCH_NODE_WIDTH + HORIZONTAL_SPACING / 2), y },
-      data: { match, players, ...callbacks },
+      position: { x: gfX, y: gfY },
+      data: { match: gf1, players, ...callbacks },
     });
-    
-    if (match.nextMatchId && match.winnerId) {
+  }
+
+  // Show the bracket-reset slot while GF1 is undecided or when a reset is triggered;
+  // omit it once the winners-bracket champion wins GF1 outright so GF1 connects
+  // straight to the Champion card with no empty box in between.
+  if (gf2 && !finishedWithoutReset) {
+    nodes.push({
+      id: gf2.id,
+      type: 'matchNode',
+      position: { x: gfX + colPitch, y: gfY },
+      data: { match: gf2, players, ...callbacks },
+    });
+
+    if (gf1) {
       edges.push({
-        id: `${match.id}->${match.nextMatchId}`,
-        source: match.id,
-        target: match.nextMatchId,
+        id: `${gf1.id}->${gf2.id}`,
+        source: gf1.id,
+        target: gf2.id,
         sourceHandle: 'right',
         targetHandle: 'left',
         type: 'bracketEdge',
-        data: { isWinnerPath: true, isAnimated: false },
+        data: { isWinnerPath: resetTriggered, isAnimated: false },
       });
     }
-  });
+  }
   
-  // Champion node
+  // Champion node attaches to the actual deciding Grand Finals match
   if (winner) {
-    const lastGF = grandFinalsMatches[grandFinalsMatches.length - 1];
-    if (lastGF) {
-      const lastGFNode = nodes.find(n => n.id === lastGF.id);
-      if (lastGFNode) {
-        nodes.push({
-          id: 'champion',
-          type: 'championNode',
-          position: { 
-            x: lastGFNode.position.x + MATCH_NODE_WIDTH + HORIZONTAL_SPACING, 
-            y: lastGFNode.position.y - 30 
-          },
-          data: { player: winner, players, isChampion: true },
-        });
-        
-        edges.push({
-          id: `${lastGF.id}->champion`,
-          source: lastGF.id,
-          target: 'champion',
-          sourceHandle: 'right',
-          targetHandle: 'left',
-          type: 'bracketEdge',
-          data: { isWinnerPath: true },
-        });
-      }
+    const decidingGF = gf2?.winnerId ? gf2 : finishedWithoutReset ? gf1 : undefined;
+    const decidingNode = decidingGF ? nodes.find(n => n.id === decidingGF.id) : undefined;
+    if (decidingGF && decidingNode) {
+      nodes.push({
+        id: 'champion',
+        type: 'championNode',
+        position: { 
+          x: decidingNode.position.x + colPitch, 
+          y: decidingNode.position.y,
+        },
+        data: { player: winner, players, isChampion: true },
+      });
+      
+      edges.push({
+        id: `${decidingGF.id}->champion`,
+        source: decidingGF.id,
+        target: 'champion',
+        sourceHandle: 'right',
+        targetHandle: 'left',
+        type: 'bracketEdge',
+        data: { isWinnerPath: true },
+      });
     }
   }
   
@@ -500,12 +539,13 @@ export function layoutGroupKnockout(
       ? 2 * (GROUP_NODE_WIDTH + HORIZONTAL_SPACING)
       : sortedGroups.length * (GROUP_NODE_WIDTH + HORIZONTAL_SPACING);
     
-    const knockoutLayout = layoutSingleElimination(
-      knockoutMatches.map(m => ({ ...m, bracket: 'winners' as const })),
-      players,
-      winner,
-      callbacks
-    );
+    const isDoubleElimKnockout =
+      formatConfig?.knockoutFormat === 'double-elimination' ||
+      knockoutMatches.some(m => m.bracket === 'losers' || m.bracket === 'grand-finals');
+
+    const knockoutLayout = isDoubleElimKnockout
+      ? layoutDoubleElimination(knockoutMatches, players, winner, callbacks)
+      : layoutSingleElimination(knockoutMatches, players, winner, callbacks);
     
     // Offset knockout nodes
     knockoutLayout.nodes.forEach(node => {

@@ -34,12 +34,13 @@ export function PlayerForm({ onAdd }: PlayerFormProps) {
         onChange={(e) => setName(e.target.value)}
         placeholder="Enter player name"
         className={cn(
-          'flex-1 rounded border border-gray-300 px-4 py-2',
+          'min-w-0 flex-1 rounded border border-gray-300 px-4 py-2',
           'dark:border-gray-600 dark:bg-gray-700'
         )}
       />
       <button
         type="submit"
+        aria-label="Add player"
         className={cn(
           'rounded px-6 py-2 font-medium text-white',
           'bg-green-600 hover:bg-green-700',

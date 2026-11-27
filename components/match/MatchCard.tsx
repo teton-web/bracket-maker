@@ -60,6 +60,11 @@ export function MatchCard({
 
   return (
     <motion.div
+      data-testid="match-card"
+      data-match-id={match.id}
+      data-bracket={match.bracket}
+      data-round={match.round}
+      data-status={match.isBye ? 'bye' : isComplete ? 'completed' : canPlay ? 'ready' : 'pending'}
       animate={controls}
       whileHover={(canPlay || canEdit) ? { scale: 1.02 } : {}}
       className={cn(
@@ -70,7 +75,7 @@ export function MatchCard({
         // Active state
         isActive && 'border-glow-animate ring-1 ring-[var(--neon-cyan)]',
         // Complete state
-        isComplete && 'ring-1 ring-[var(--neon-green)]/30',
+        isComplete && 'completed ring-1 ring-[var(--neon-green)]/30',
         // Interactive states
         (canPlay || canEdit) && 'hover:border-[var(--neon-cyan)]/50 hover:shadow-[0_0_20px_rgba(0,245,255,0.15)]',
         compact && 'p-2 text-sm'
@@ -91,7 +96,7 @@ export function MatchCard({
             {getBracketLabel()}
           </span>
           <span className="text-xs text-[var(--text-muted)]">
-            Round {match.round}
+            {match.bracket === 'grand-finals' && match.round === 2 ? 'Round 2 (Reset)' : `Round ${match.round}`}
           </span>
         </div>
         
@@ -101,8 +106,9 @@ export function MatchCard({
               FF
             </span>
           )}
-          {onOverrideClick && !isComplete && (
+          {onOverrideClick && !isComplete && !match.isBye && (
             <button
+              data-testid="match-override-button"
               onClick={(e) => {
                 e.stopPropagation();
                 onOverrideClick();

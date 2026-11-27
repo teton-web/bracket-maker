@@ -71,6 +71,7 @@ export function PlayerList({
         players.map((player, index) => (
           <motion.div
             key={player.id}
+            data-testid="player"
             draggable
             onDragStart={() => handleDragStart(index)}
             onDragOver={(e) => handleDragOver(e, index)}
@@ -100,9 +101,10 @@ export function PlayerList({
               >
                 {player.seed}
               </div>
-              <span className="font-medium">{player.name}</span>
+              <span data-testid="player-name" className="font-medium">{player.name}</span>
             </div>
             <button
+              data-testid="remove-player"
               onClick={() => onRemove(player.id)}
               className={cn(
                 'cursor-pointer rounded px-3 py-1 text-sm font-medium',

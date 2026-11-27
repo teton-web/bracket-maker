@@ -1,278 +1,147 @@
 /**
- * Common test utilities and helpers for E2E tests
+ * Shared helpers for the E2E suite. They drive the real UI: the new-tournament
+ * form, the list view for scoring, and the bracket view for stage advancement.
  */
 
-import { Page } from '@playwright/test';
-import { TestPlayer, TestPlayerList } from './players';
+import { expect, type Locator, type Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
-// LocalStorage keys used by the app
 export const STORAGE_KEYS = {
   TOURNAMENTS: 'bracket-maker-tournaments',
   PLAYER_LISTS: 'bracket-maker-player-lists',
-  THEME: 'bracket-maker-theme',
 } as const;
 
-/**
- * Clear all application data from localStorage
- */
-export async function clearAppData(page: Page) {
-  await page.context().addCookies([]); // Clear cookies
-  await page.evaluate(() => {
-    try {
-      localStorage.clear();
-      sessionStorage.clear();
-    } catch (e) {
-      // Ignore localStorage errors in case of cross-origin restrictions
-      console.warn('Could not clear localStorage:', e);
-    }
-  });
+export type Format =
+  | 'Single Elimination'
+  | 'Double Elimination'
+  | 'Round Robin'
+  | 'Swiss System'
+  | 'Group Stage + Knockout';
+
+/** Start every test from an empty app. */
+export async function resetApp(page: Page) {
+  await page.goto('/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
 }
 
-/**
- * Navigate to a page and wait for it to load
- */
-export async function navigateTo(page: Page, path: string) {
-  await page.goto(path);
-  await page.waitForLoadState('networkidle');
-}
-
-/**
- * Wait for a toast notification to appear and disappear
- */
-export async function waitForToast(page: Page, text?: string) {
-  const toast = text
-    ? page.locator('[data-sonner-toast]').filter({ hasText: text })
-    : page.locator('[data-sonner-toast]');
-  await toast.waitFor({ state: 'visible' });
-  await toast.waitFor({ state: 'hidden' });
-}
-
-/**
- * Fill tournament name and validate
- */
-export async function fillTournamentName(page: Page, name: string) {
-  await page.getByPlaceholder('Enter tournament name').fill(name);
-}
-
-/**
- * Select a tournament format
- */
-export async function selectTournamentFormat(page: Page, format: string) {
-  await page.getByText(format, { exact: true }).click();
-}
-
-/**
- * Add players to a tournament
- */
-export async function addPlayers(page: Page, players: TestPlayerList) {
-  for (const player of players.players) {
-    await page.getByPlaceholder('Player name').fill(player.name);
-    await page.getByRole('button', { name: 'Add Player' }).click();
+export async function addPlayers(page: Page, names: string[]) {
+  const input = page.getByPlaceholder('Enter player name');
+  for (const name of names) {
+    await input.fill(name);
+    await input.press('Enter');
   }
 }
 
-/**
- * Add a single player
- */
-export async function addPlayer(page: Page, player: TestPlayer) {
-  await page.getByPlaceholder('Player name').fill(player.name);
-  await page.getByRole('button', { name: 'Add Player' }).click();
+export interface CreateOptions {
+  name: string;
+  format: Format;
+  players: string[];
+  /** Fill format settings (rounds, groups...) after the format is picked */
+  configure?: (page: Page) => Promise<void>;
+  /** "start" uses Create & Start, "draft" uses Save Draft */
+  mode?: 'start' | 'draft';
 }
 
-/**
- * Shuffle players in tournament creation
- */
-export async function shufflePlayers(page: Page) {
-  await page.getByRole('button', { name: 'Shuffle' }).click();
-  await waitForToast(page, 'Players shuffled!');
+/** Create a tournament through the new-tournament form and return its id. */
+export async function createTournament(page: Page, options: CreateOptions): Promise<string> {
+  await page.goto('/tournament/new');
+  await page.getByLabel('Tournament Name').fill(options.name);
+  await page.getByRole('button', { name: options.format }).click();
+  if (options.configure) await options.configure(page);
+  await addPlayers(page, options.players);
+  await page
+    .getByRole('button', { name: options.mode === 'draft' ? 'Save Draft' : 'Create & Start Tournament' })
+    .click();
+  await page.waitForURL(/\/tournament\/(?!new$)[^/]+$/, { waitUntil: 'commit' });
+  // The first visit to a tournament page can wait on a dev-server compile
+  await expect(page.getByRole('heading', { level: 1, name: options.name })).toBeVisible({ timeout: 15_000 });
+  return page.url().split('/').pop()!;
 }
 
-/**
- * Create and start a tournament
- */
-export async function createAndStartTournament(
-  page: Page,
-  name: string,
-  format: string,
-  players: TestPlayerList
-) {
-  await fillTournamentName(page, name);
-  await selectTournamentFormat(page, format);
-  await addPlayers(page, players);
-  await page.getByRole('button', { name: 'Create & Start Tournament' }).click();
-  await page.waitForURL(/\/tournament\/.+/);
+export function statusBadge(page: Page): Locator {
+  return page.getByText(/^Status: /);
 }
 
-/**
- * Create a draft tournament
- */
-export async function createDraftTournament(
-  page: Page,
-  name: string,
-  format: string,
-  players: TestPlayerList
-) {
-  await fillTournamentName(page, name);
-  await selectTournamentFormat(page, format);
-  await addPlayers(page, players);
-  await page.getByRole('button', { name: 'Save Draft' }).click();
-  await page.waitForURL(/\/tournament\/.+/);
+export function matchCards(page: Page): Locator {
+  return page.getByTestId('match-card');
 }
 
-/**
- * Start a draft tournament
- */
-export async function startTournament(page: Page) {
-  await page.getByRole('button', { name: 'Start Tournament' }).click();
-  await page.waitForURL(/\/tournament\/.+/);
+/** Match cards waiting for a score (both players known, no result yet). */
+export function readyMatches(page: Page): Locator {
+  return page.locator('[data-testid="match-card"][data-status="ready"]');
 }
 
-/**
- * Complete a match with given scores
- */
-export async function completeMatch(page: Page, player1Score: number, player2Score: number) {
-  // Click on a match card
-  await page.locator('[data-testid="match-card"]').first().click();
+/** The match card that contains both players. */
+export function matchBetween(page: Page, a: string, b: string): Locator {
+  return matchCards(page).filter({ hasText: a }).filter({ hasText: b });
+}
 
-  // Fill scores
-  await page.getByPlaceholder('Score').first().fill(player1Score.toString());
-  await page.getByPlaceholder('Score').last().fill(player2Score.toString());
+export async function showListView(page: Page) {
+  await page.getByRole('button', { name: 'List View' }).click();
+  await expect(page.getByTestId('match-list')).toBeVisible();
+}
 
-  // Save
+export async function showBracketView(page: Page) {
+  await page.getByRole('button', { name: 'Bracket View' }).click();
+  await expect(page.getByTestId('bracket-container')).toBeVisible();
+}
+
+/** Fill the open score dialog by player name and save it. */
+export async function enterScores(page: Page, scores: Record<string, number>) {
+  const dialog = page.getByRole('heading', { name: 'Enter Match Score' });
+  await expect(dialog).toBeVisible();
+  for (const [player, score] of Object.entries(scores)) {
+    await page.getByLabel(player, { exact: true }).fill(String(score));
+  }
   await page.getByRole('button', { name: 'Save Score' }).click();
-  await waitForToast(page);
+  await expect(dialog).toBeHidden();
 }
 
+/** Score the pending match between `winner` and `loser` (list view). */
+export async function playMatch(page: Page, winner: string, loser: string, winnerScore = 3, loserScore = 1) {
+  await matchBetween(page, winner, loser).and(readyMatches(page)).click();
+  await enterScores(page, { [winner]: winnerScore, [loser]: loserScore });
+}
+
+/** Names from `roster` that appear on a match card, in card order. */
+export async function playersOnCard(card: Locator, roster: string[]): Promise<string[]> {
+  const text = (await card.textContent()) ?? '';
+  return roster
+    .filter((name) => text.includes(name))
+    .sort((a, b) => text.indexOf(a) - text.indexOf(b));
+}
+
+/** Lower index in the roster = higher seed. */
+export const favoriteWins = (roster: string[]) => (a: string, b: string) =>
+  roster.indexOf(a) < roster.indexOf(b) ? a : b;
+
 /**
- * Complete a match using keyboard navigation
+ * Play every ready match in the list view until none are left.
+ * `pickWinner` receives the two names on the card and returns the winner.
  */
-export async function completeMatchWithKeyboard(
+export async function playAllReadyMatches(
   page: Page,
-  player1Score: number,
-  player2Score: number
+  roster: string[],
+  pickWinner: (a: string, b: string) => string = favoriteWins(roster)
 ) {
-  // Click on a match card
-  await page.locator('[data-testid="match-card"]').first().click();
-
-  // Use arrow keys to set scores
-  const scoreInput1 = page.locator('[data-testid="player1-score"]').locator('input');
-  await scoreInput1.focus();
-  for (let i = 0; i < player1Score; i++) {
-    await page.keyboard.press('ArrowUp');
+  for (let played = 0; played < 100; played++) {
+    if ((await readyMatches(page).count()) === 0) return;
+    const [a, b] = await playersOnCard(readyMatches(page).first(), roster);
+    const winner = pickWinner(a, b);
+    await playMatch(page, winner, winner === a ? b : a);
   }
-
-  const scoreInput2 = page.locator('[data-testid="player2-score"]').locator('input');
-  await scoreInput2.focus();
-  for (let i = 0; i < player2Score; i++) {
-    await page.keyboard.press('ArrowUp');
-  }
-
-  // Save with Enter
-  await page.keyboard.press('Enter');
-  await waitForToast(page);
+  throw new Error('playAllReadyMatches: too many matches');
 }
 
-/**
- * Get tournament ID from URL
- */
-export function getTournamentIdFromUrl(url: string): string {
-  const match = url.match(/\/tournament\/([^\/]+)/);
-  return match ? match[1] : '';
+/** Tournaments as stored by the app (for checks the UI doesn't expose directly). */
+export async function storedTournaments(page: Page) {
+  return page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? '[]'), STORAGE_KEYS.TOURNAMENTS);
 }
 
-/**
- * Wait for tournament to be completed
- */
-export async function waitForTournamentCompletion(page: Page) {
-  await page.waitForSelector('[data-testid="winner-celebration"]');
-}
-
-/**
- * Toggle between bracket and list view
- */
-export async function toggleView(page: Page, view: 'bracket' | 'list') {
-  await page.getByRole('button', { name: view === 'bracket' ? 'Bracket' : 'List' }).click();
-}
-
-/**
- * Export tournament data
- */
-export async function exportTournament(page: Page, format: 'json' | 'csv' | 'image') {
-  const buttonText = format === 'json' ? 'Export JSON' :
-                    format === 'csv' ? 'Export CSV' :
-                    'Export Image';
-  await page.getByRole('button', { name: buttonText }).click();
-
-  if (format === 'image') {
-    // Wait for download to start
-    await page.waitForTimeout(1000);
-  }
-}
-
-/**
- * Create a saved player list
- */
-export async function createPlayerList(page: Page, listName: string, players: TestPlayerList) {
-  // Navigate to players page
-  await navigateTo(page, '/players');
-
-  // Add players
-  await addPlayers(page, players);
-
-  // Save the list
-  await page.getByRole('button', { name: 'Save as List' }).click();
-
-  // Fill list name
-  await page.getByLabel('List Name').fill(listName);
-
-  // Confirm save
-  await page.getByRole('button', { name: 'Save' }).click();
-  await waitForToast(page, 'Player list saved successfully!');
-}
-
-/**
- * Load a saved player list in tournament creation
- */
-export async function loadPlayerList(page: Page, listName: string) {
-  // Navigate to tournament creation
-  await navigateTo(page, '/tournament/new');
-
-  // Open dropdown and select list
-  await page.locator('select').filter({ hasText: 'Load saved list...' }).selectOption({ label: listName });
-}
-
-/**
- * Wait for element to be visible and stable
- */
-export async function waitForStableElement(page: Page, selector: string) {
-  await page.waitForSelector(selector, { state: 'visible' });
-  await page.waitForSelector(selector, { state: 'attached' });
-}
-
-/**
- * Get text content from an element
- */
-export async function getTextContent(page: Page, selector: string): Promise<string | null> {
-  return page.locator(selector).textContent();
-}
-
-/**
- * Check if element exists
- */
-export async function elementExists(page: Page, selector: string): Promise<boolean> {
-  return (await page.locator(selector).count()) > 0;
-}
-
-/**
- * Get match count in tournament
- */
-export async function getMatchCount(page: Page): Promise<number> {
-  return page.locator('[data-testid="match-card"]').count();
-}
-
-/**
- * Get completed match count
- */
-export async function getCompletedMatchCount(page: Page): Promise<number> {
-  return page.locator('[data-testid="match-card"].completed').count();
+/** Capture a file the page offers for download. */
+export async function captureDownload(page: Page, trigger: () => Promise<void>) {
+  const [download] = await Promise.all([page.waitForEvent('download'), trigger()]);
+  const path = await download.path();
+  return { filename: download.suggestedFilename(), content: path ? await readFile(path, 'utf8') : '' };
 }
