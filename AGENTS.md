@@ -13,3 +13,7 @@ Issue status for David and the other seats is Teton Web MCP (`user-Teton-Web`): 
 ## Commands
 
 Project commands are in `README.md`. Production build is `bun run build`. Types are `bun run typecheck`. Unit tests are `bun test`.
+
+## Accounts
+
+Phase 1 accounts use Neon managed Better Auth through `@neon/auth`. Do not call `betterAuth()`, add a database adapter, or send mail from the app. Guest pages stay public. Tournaments stay in localStorage (`bracket-maker-tournaments`, `bracket-maker-player-lists`).
