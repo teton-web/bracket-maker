@@ -138,6 +138,16 @@ bun run lint
 npm run lint
 ```
 
+### Testing
+
+```bash
+bun run test:unit       # bracket engine and storage unit tests (bun test)
+bun run test            # Playwright end-to-end tests (starts the dev server)
+bun run test:typecheck  # type-check the end-to-end tests
+```
+
+Run `bun run test:install` once to download the Playwright browsers. Add `--project=chromium` to `bun run test` for a quicker single-browser run.
+
 ## Data Storage
 
 All tournament data is stored locally in your browser using localStorage. This means:

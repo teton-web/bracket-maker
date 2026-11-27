@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import type { Tournament, Player, TournamentFormat } from '@/types/tournament';
+import { getDoubleEliminationFinalMatch, getSingleEliminationFinalMatch } from '@/lib/bracket';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 
@@ -168,6 +169,7 @@ export function WinnerCelebration({ tournament }: WinnerCelebrationProps) {
           
           {/* Main celebration card */}
           <motion.div
+            data-testid="winner-celebration"
             initial={{ opacity: 0, scale: 0.8, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.8 }}
@@ -373,24 +375,40 @@ export function WinnerCelebration({ tournament }: WinnerCelebrationProps) {
 }
 
 // Helper functions
+function getFinalEliminationMatch(tournament: Tournament) {
+  const { format, formatConfig, matches } = tournament;
+  if (format === 'double-elimination') {
+    return getDoubleEliminationFinalMatch(matches);
+  }
+  if (format === 'group-knockout') {
+    const isDoubleElim =
+      formatConfig?.knockoutFormat === 'double-elimination' ||
+      matches.some((m) => m.bracket === 'grand-finals');
+    return isDoubleElim
+      ? getDoubleEliminationFinalMatch(matches)
+      : getSingleEliminationFinalMatch(matches);
+  }
+  if (format === 'single-elimination') {
+    return getSingleEliminationFinalMatch(matches);
+  }
+  return null;
+}
+
 function getWinner(tournament: Tournament): Player | null {
   const { format, matches, players } = tournament;
   
-  if (format === 'double-elimination') {
-    const grandFinals = matches.filter(m => m.bracket === 'grand-finals');
-    const finalMatch = grandFinals.filter(m => m.round === 2).find(m => m.winnerId) ||
-                       grandFinals.find(m => m.winnerId);
-    return finalMatch ? players.find(p => p.id === finalMatch.winnerId) || null : null;
-  }
-  
-  if (format === 'single-elimination' || format === 'group-knockout') {
-    const winnersMatches = matches.filter(m => m.bracket === 'winners');
-    const maxRound = Math.max(...winnersMatches.map(m => m.round), 0);
-    const finalMatch = winnersMatches.find(m => m.round === maxRound && m.winnerId);
+  if (format === 'double-elimination' || format === 'single-elimination' || format === 'group-knockout') {
+    const finalMatch = getFinalEliminationMatch(tournament);
     return finalMatch ? players.find(p => p.id === finalMatch.winnerId) || null : null;
   }
   
   if (format === 'round-robin' || format === 'swiss') {
+    if (format === 'swiss' && tournament.swissQualificationComplete) {
+      const finalMatch = getSingleEliminationFinalMatch(matches);
+      if (finalMatch) {
+        return players.find(p => p.id === finalMatch.winnerId) || null;
+      }
+    }
     // Winner is the player with most wins
     const playerWins = new Map<string, number>();
     players.forEach(p => playerWins.set(p.id, 0));
@@ -417,24 +435,10 @@ function getWinner(tournament: Tournament): Player | null {
 }
 
 function getRunnerUp(tournament: Tournament): Player | null {
-  const { format, matches, players } = tournament;
+  const { format, players } = tournament;
   
-  if (format === 'double-elimination') {
-    const grandFinals = matches.filter(m => m.bracket === 'grand-finals');
-    const finalMatch = grandFinals.filter(m => m.round === 2).find(m => m.winnerId) ||
-                       grandFinals.find(m => m.winnerId);
-    if (finalMatch) {
-      const loserId = finalMatch.player1Id === finalMatch.winnerId 
-        ? finalMatch.player2Id 
-        : finalMatch.player1Id;
-      return players.find(p => p.id === loserId) || null;
-    }
-  }
-  
-  if (format === 'single-elimination') {
-    const winnersMatches = matches.filter(m => m.bracket === 'winners');
-    const maxRound = Math.max(...winnersMatches.map(m => m.round), 0);
-    const finalMatch = winnersMatches.find(m => m.round === maxRound && m.winnerId);
+  if (format === 'double-elimination' || format === 'single-elimination' || format === 'group-knockout') {
+    const finalMatch = getFinalEliminationMatch(tournament);
     if (finalMatch) {
       const loserId = finalMatch.player1Id === finalMatch.winnerId 
         ? finalMatch.player2Id 

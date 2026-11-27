@@ -2,6 +2,7 @@
 
 import { useMemo, forwardRef } from 'react';
 import type { Match, Player, TournamentFormat, TournamentFormatConfig } from '@/types/tournament';
+import { getDoubleEliminationFinalMatch, getSingleEliminationFinalMatch } from '@/lib/bracket';
 import { ReactFlowBracket, type ReactFlowBracketRef } from './ReactFlowBracket';
 
 interface BracketTreeProps {
@@ -40,35 +41,32 @@ export const BracketTree = forwardRef<ReactFlowBracketRef, BracketTreeProps>(
     // Find the winner if tournament is complete
     const winner = useMemo(() => {
       if (format === 'double-elimination') {
-        const grandFinals = matches.filter(m => m.bracket === 'grand-finals');
-        const finalMatch = grandFinals.filter(m => m.round === 2).find(m => m.winnerId) ||
-                           grandFinals.find(m => m.winnerId);
+        const finalMatch = getDoubleEliminationFinalMatch(matches);
         return finalMatch ? players.find(p => p.id === finalMatch.winnerId) || null : null;
       }
       
       if (format === 'single-elimination') {
-        const winnersMatches = matches.filter(m => m.bracket === 'winners');
-        const maxRound = Math.max(...winnersMatches.map(m => m.round), 0);
-        const finalMatch = winnersMatches.find(m => m.round === maxRound && m.winnerId);
+        const finalMatch = getSingleEliminationFinalMatch(matches);
         return finalMatch ? players.find(p => p.id === finalMatch.winnerId) || null : null;
       }
       
       if (format === 'group-knockout' && groupStageComplete) {
-        const knockoutMatches = matches.filter(m => m.bracket === 'winners');
-        const maxRound = Math.max(...knockoutMatches.map(m => m.round), 0);
-        const finalMatch = knockoutMatches.find(m => m.round === maxRound && m.winnerId);
+        const isDoubleElim =
+          formatConfig?.knockoutFormat === 'double-elimination' ||
+          matches.some(m => m.bracket === 'grand-finals');
+        const finalMatch = isDoubleElim
+          ? getDoubleEliminationFinalMatch(matches)
+          : getSingleEliminationFinalMatch(matches);
         return finalMatch ? players.find(p => p.id === finalMatch.winnerId) || null : null;
       }
       
       if (format === 'swiss' && swissQualificationComplete) {
-        const knockoutMatches = matches.filter(m => m.bracket === 'winners');
-        const maxRound = Math.max(...knockoutMatches.map(m => m.round), 0);
-        const finalMatch = knockoutMatches.find(m => m.round === maxRound && m.winnerId);
+        const finalMatch = getSingleEliminationFinalMatch(matches);
         return finalMatch ? players.find(p => p.id === finalMatch.winnerId) || null : null;
       }
       
       return null;
-    }, [matches, players, format, groupStageComplete, swissQualificationComplete]);
+    }, [matches, players, format, formatConfig, groupStageComplete, swissQualificationComplete]);
 
     // For Swiss with knockout, show knockout bracket if qualification is complete
     const effectiveFormat = useMemo(() => {

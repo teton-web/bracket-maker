@@ -159,7 +159,7 @@ export function PlayerListManager() {
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2">
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
       {/* Left column: List of saved player lists */}
       <section className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800" aria-labelledby="saved-lists-title">
         <div className="mb-4 flex items-center justify-between">
@@ -261,10 +261,11 @@ export function PlayerListManager() {
         {(isEditing || !selectedListId) && (
           <>
             <div className="mb-4">
-              <label className="mb-2 block text-sm font-medium">
+              <label htmlFor="player-list-name" className="mb-2 block text-sm font-medium">
                 List Name
               </label>
               <input
+                id="player-list-name"
                 type="text"
                 value={listName}
                 onChange={(e) => setListName(e.target.value)}

@@ -68,6 +68,7 @@ export const PlayerListSchema = z.object({
  * Existing tournaments without format are assumed to be double-elimination
  */
 function migrateTournament(data: any): any {
+  if (!data || typeof data !== 'object') return data;
   if (!data.format) {
     // Infer format from existing matches if possible
     const matches = data.matches || [];
@@ -97,34 +98,46 @@ function migrateTournament(data: any): any {
   return data;
 }
 
-export function validateTournament(data: unknown): Tournament | null {
+function parseTournament(data: unknown) {
   // Apply migration first
-  const migratedData = migrateTournament(data);
-  
-  const result = TournamentSchema.safeParse(migratedData);
-  if (result.success) {
-    // Ensure format has a default value
-    return {
-      ...result.data,
-      format: result.data.format || 'double-elimination',
-    } as Tournament;
-  }
-  console.warn('Invalid tournament data:', result.error);
-  return null;
+  const result = TournamentSchema.safeParse(migrateTournament(data));
+  if (!result.success) return { tournament: null, error: result.error };
+  // Ensure format has a default value
+  const tournament = {
+    ...result.data,
+    format: result.data.format || 'double-elimination',
+  } as Tournament;
+  return { tournament, error: null };
+}
+
+export function validateTournament(data: unknown): Tournament | null {
+  const { tournament, error } = parseTournament(data);
+  if (error) console.warn('Invalid tournament data:', error);
+  return tournament;
 }
 
 export function validateTournaments(data: unknown): Tournament[] {
-  if (!Array.isArray(data)) {
-    return [];
-  }
-  const validated: Tournament[] = [];
+  return partitionTournaments(data).valid;
+}
+
+/**
+ * Split stored tournament data into tournaments that pass validation and the raw
+ * entries that don't. Invalid entries are returned untouched so callers can keep
+ * them in storage instead of erasing data the app can't read yet.
+ */
+export function partitionTournaments(data: unknown): { valid: Tournament[]; invalid: unknown[] } {
+  if (data === null || data === undefined) return { valid: [], invalid: [] };
+  // Anything that isn't a list is unreadable as a whole; keep it as one entry
+  if (!Array.isArray(data)) return { valid: [], invalid: [data] };
+
+  const valid: Tournament[] = [];
+  const invalid: unknown[] = [];
   for (const item of data) {
-    const tournament = validateTournament(item);
-    if (tournament) {
-      validated.push(tournament);
-    }
+    const { tournament } = parseTournament(item);
+    if (tournament) valid.push(tournament);
+    else invalid.push(item);
   }
-  return validated;
+  return { valid, invalid };
 }
 
 export function validatePlayerList(data: unknown): PlayerList | null {

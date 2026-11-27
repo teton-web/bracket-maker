@@ -71,8 +71,9 @@ export function ScoreModal({
   ) => {
     if (e.key === 'ArrowUp') {
       e.preventDefault();
+      // An empty field counts as 0, so the first press gives 1
       const currentValue = parseInt(isPlayer1 ? player1Score : player2Score, 10);
-      const newValue = isNaN(currentValue) ? 0 : currentValue + 1;
+      const newValue = (isNaN(currentValue) ? 0 : currentValue) + 1;
       if (isPlayer1) {
         setPlayer1Score(newValue.toString());
       } else {
@@ -126,11 +127,12 @@ export function ScoreModal({
             <h2 className="mb-4 text-xl font-bold">Enter Match Score</h2>
 
             <div className="space-y-4">
-              <div>
-                <label className="mb-2 block text-sm font-medium">
+              <div data-testid="player1-score">
+                <label htmlFor="score-player1" className="mb-2 block text-sm font-medium">
                   {player1?.name || 'Player 1'}
                 </label>
                 <input
+                  id="score-player1"
                   type="number"
                   min="0"
                   value={player1Score}
@@ -142,11 +144,12 @@ export function ScoreModal({
                 />
               </div>
 
-              <div>
-                <label className="mb-2 block text-sm font-medium">
+              <div data-testid="player2-score">
+                <label htmlFor="score-player2" className="mb-2 block text-sm font-medium">
                   {player2?.name || 'Player 2'}
                 </label>
                 <input
+                  id="score-player2"
                   type="number"
                   min="0"
                   value={player2Score}

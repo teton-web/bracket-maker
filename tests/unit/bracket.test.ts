@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  calculateNextPowerOf2,
   forceMatchWinner,
   generateDoubleEliminationBracket,
   generateGroupKnockoutBracket,
@@ -193,6 +194,42 @@ for (const format of ['single-elimination', 'double-elimination'] as const) {
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Losers-bracket crossover
+// ---------------------------------------------------------------------------
+
+describe('losers bracket drop-downs', () => {
+  test('a dropped player never rematches someone in their first losers match', () => {
+    for (const n of COUNTS) {
+      const players = makePlayers(n);
+      const bracketSize = calculateNextPowerOf2(n);
+      for (const [, pick] of PICKERS) {
+        let matches = generateDoubleEliminationBracket(players);
+        const played = new Set<string>();
+        const key = (a: string, b: string) => [a, b].sort().join('|');
+
+        for (;;) {
+          const next = matches.find(isPlayable);
+          if (!next) break;
+
+          // Even losers rounds are where winners-bracket losers drop in (as player 2).
+          // The rematch can't be avoided when that winners round has a single match.
+          const winnersRound = next.round / 2 + 1;
+          const winnersMatchesInRound = bracketSize / 2 ** winnersRound;
+          if (next.bracket === 'losers' && next.round % 2 === 0 && winnersMatchesInRound > 1) {
+            if (played.has(key(next.player1Id!, next.player2Id!))) {
+              throw new Error(`${n} players: rematch ${next.player1Id} v ${next.player2Id} in ${next.id}`);
+            }
+          }
+
+          played.add(key(next.player1Id!, next.player2Id!));
+          matches = decide(matches, next, pick(next), false);
+        }
+      }
+    }
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Completion

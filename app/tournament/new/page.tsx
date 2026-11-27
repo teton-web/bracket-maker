@@ -239,10 +239,11 @@ export default function NewTournamentPage() {
         <h1 className="mb-8 text-4xl font-bold">Create New Tournament</h1>
 
         <div className="mb-8 rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
-          <label className="mb-2 block text-sm font-medium">
+          <label htmlFor="tournament-name" className="mb-2 block text-sm font-medium">
             Tournament Name
           </label>
           <input
+            id="tournament-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -262,6 +263,8 @@ export default function NewTournamentPage() {
               <button
                 key={option.value}
                 onClick={() => setFormat(option.value)}
+                aria-pressed={format === option.value}
+                data-selected={format === option.value}
                 className={cn(
                   'rounded-lg border-2 p-4 text-left transition-all',
                   format === option.value
@@ -315,10 +318,11 @@ export default function NewTournamentPage() {
 
               {swissMode === 'fixed' && (
                 <div>
-                  <label className="mb-2 block text-sm font-medium">
+                  <label htmlFor="swiss-rounds" className="mb-2 block text-sm font-medium">
                     Number of Rounds
                   </label>
                   <input
+                    id="swiss-rounds"
                     type="number"
                     min={2}
                     max={10}
@@ -343,10 +347,11 @@ export default function NewTournamentPage() {
               {swissMode === 'qualification' && (
                 <div className="space-y-4">
                   <div>
-                    <label className="mb-2 block text-sm font-medium">
+                    <label htmlFor="swiss-wins-to-qualify" className="mb-2 block text-sm font-medium">
                       Wins to Qualify
                     </label>
                     <input
+                      id="swiss-wins-to-qualify"
                       type="number"
                       min={2}
                       max={10}
@@ -368,10 +373,11 @@ export default function NewTournamentPage() {
                   </div>
 
                   <div>
-                    <label className="mb-2 block text-sm font-medium">
+                    <label htmlFor="swiss-qualifiers" className="mb-2 block text-sm font-medium">
                       Number of Qualifiers
                     </label>
                     <select
+                      id="swiss-qualifiers"
                       value={formatConfig.qualifyingPlayers || 8}
                       onChange={(e) =>
                         setFormatConfig({
@@ -413,10 +419,11 @@ export default function NewTournamentPage() {
           {format === 'group-knockout' && (
             <div className="mt-6 space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-gray-600 dark:bg-gray-700/50">
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label htmlFor="group-count" className="mb-2 block text-sm font-medium">
                   Number of Groups
                 </label>
                 <input
+                  id="group-count"
                   type="number"
                   min={2}
                   max={8}
@@ -434,10 +441,11 @@ export default function NewTournamentPage() {
                 />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label htmlFor="advance-per-group" className="mb-2 block text-sm font-medium">
                   Players Advancing Per Group
                 </label>
                 <input
+                  id="advance-per-group"
                   type="number"
                   min={1}
                   max={4}
@@ -455,10 +463,11 @@ export default function NewTournamentPage() {
                 />
               </div>
               <div>
-                <label className="mb-2 block text-sm font-medium">
+                <label htmlFor="knockout-format" className="mb-2 block text-sm font-medium">
                   Knockout Format
                 </label>
                 <select
+                  id="knockout-format"
                   value={formatConfig.knockoutFormat || 'single-elimination'}
                   onChange={(e) =>
                     setFormatConfig({
@@ -561,10 +570,11 @@ export default function NewTournamentPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
             <div className="rounded-lg border border-gray-200 bg-white p-6 dark:border-gray-700 dark:bg-gray-800">
               <h3 className="mb-4 text-xl font-bold">Save Player List</h3>
-              <label className="mb-2 block text-sm font-medium">
+              <label htmlFor="list-name" className="mb-2 block text-sm font-medium">
                 List Name
               </label>
               <input
+                id="list-name"
                 type="text"
                 value={listNameToSave}
                 onChange={(e) => setListNameToSave(e.target.value)}

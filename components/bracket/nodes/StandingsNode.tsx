@@ -30,6 +30,7 @@ function StandingsNodeComponent({ data }: NodeProps & { data: StandingsNodeData 
   
   return (
     <motion.div
+      data-testid="group-standings"
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       className={cn(

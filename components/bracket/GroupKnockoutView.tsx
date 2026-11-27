@@ -133,6 +133,7 @@ export function GroupKnockoutView({
               return (
                 <div
                   key={groupId}
+                  data-testid="group"
                   className="rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800"
                 >
                   <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-700">
