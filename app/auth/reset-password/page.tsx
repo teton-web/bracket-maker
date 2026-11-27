@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
-import { Suspense } from 'react';
 import { ResetPasswordForm } from '@/components/auth/ResetPasswordForm';
 
 export const metadata: Metadata = { title: 'Reset password' };
 
-export default function ResetPasswordPage() {
-  return (
-    <Suspense fallback={<p className="px-4 py-12 text-center text-sm text-[var(--text-muted)]">Loading…</p>}>
-      <ResetPasswordForm />
-    </Suspense>
-  );
+export default async function ResetPasswordPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ email?: string | string[] }>;
+}) {
+  const params = await searchParams;
+  const email = typeof params.email === 'string' ? params.email : '';
+  return <ResetPasswordForm initialEmail={email} />;
 }

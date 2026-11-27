@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
-import { AUTH_ENV_ERROR, readAuthEnv } from '../../lib/auth/env';
+import { AUTH_ENV_ERROR, isAuthConfigured, readAuthEnv } from '../../lib/auth/env';
+import { signedInAfterEmailVerification } from '../../lib/auth/verification';
 import { asAuthError, authErrorMessage, INVALID_CREDENTIALS_MESSAGE, isSixDigitCode, isUnverifiedEmail } from '../../lib/auth/messages';
 import { AUTH_PAGES, GUEST_ROUTES, publicRoutes } from '../../lib/auth/public-routes';
 import { sessionUser } from '../../lib/auth/session-user';
@@ -22,9 +23,39 @@ describe('auth helpers', () => {
     expect(publicRoutes).not.toContain('/auth');
   });
 
-  test('proxy only matches the account page', () => {
+  test('proxy only matches the account page and skips auth when env is missing', () => {
     const proxy = readFileSync('proxy.ts', 'utf8');
     expect(proxy).toContain("matcher: ['/account', '/account/:path*']");
+    expect(proxy).toMatch(/if \(!isAuthConfigured\(process\.env\)\)[\s\S]*return getAuth\(\)/);
+    expect(isAuthConfigured({})).toBe(false);
+    expect(isAuthConfigured({ NEON_AUTH_BASE_URL: 'https://auth.example' })).toBe(false);
+    expect(
+      isAuthConfigured({ NEON_AUTH_BASE_URL: 'https://auth.example', NEON_AUTH_COOKIE_SECRET: 'secret' })
+    ).toBe(true);
+  });
+
+  test('auth forms post to their own page', () => {
+    const forms = [
+      ['components/auth/SignInForm.tsx', 'action="/auth/sign-in"'],
+      ['components/auth/SignUpForm.tsx', 'action="/auth/sign-up"'],
+      ['components/auth/VerifyEmailForm.tsx', 'action="/auth/verify-email"'],
+      ['components/auth/ForgotPasswordForm.tsx', 'action="/auth/forgot-password"'],
+      ['components/auth/ResetPasswordForm.tsx', 'action="/auth/reset-password"'],
+    ];
+    for (const [file, action] of forms) {
+      const text = readFileSync(file, 'utf8');
+      expect(text).toContain('method="post"');
+      expect(text).toContain(action);
+    }
+  });
+
+  test('email verification token means a session was created', () => {
+    expect(signedInAfterEmailVerification({ status: true, token: 'session-token', user: { email: 'a@example.com' } })).toBe(
+      true
+    );
+    expect(signedInAfterEmailVerification({ status: true, token: null, user: { email: 'a@example.com' } })).toBe(false);
+    expect(signedInAfterEmailVerification({ session: { user: { email: 'a@example.com' } } })).toBe(true);
+    expect(signedInAfterEmailVerification(null)).toBe(false);
   });
 
   test('six-digit codes are digits only', () => {

@@ -1,44 +1,47 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { authClient } from '@/lib/auth/client';
-import { sessionUser, type AuthUserView } from '@/lib/auth/session-user';
+import { asAuthError, authErrorMessage } from '@/lib/auth/messages';
+import { sessionUser } from '@/lib/auth/session-user';
 import { cn } from '@/lib/utils';
 
 export function AccountMenu({ layout = 'bar' }: { layout?: 'bar' | 'menu' }) {
-  const [user, setUser] = useState<AuthUserView | null>(null);
-  const [loading, setLoading] = useState(true);
+  const pathname = usePathname();
+  const { data, isPending, refetch } = authClient.useSession();
+  const user = sessionUser(data);
   const [signingOut, setSigningOut] = useState(false);
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  const skipFirstPath = useRef(true);
 
   useEffect(() => {
-    let cancelled = false;
-    authClient
-      .getSession()
-      .then((result) => {
-        if (!cancelled) setUser(sessionUser(result.data));
-      })
-      .catch(() => {
-        if (!cancelled) setUser(null);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (skipFirstPath.current) {
+      skipFirstPath.current = false;
+      return;
+    }
+    void refetch();
+  }, [pathname, refetch]);
 
   async function signOut() {
     setSigningOut(true);
+    setSignOutError(null);
     try {
-      await authClient.signOut();
-    } finally {
+      const result = await authClient.signOut();
+      if (result && typeof result === 'object' && 'error' in result && result.error) {
+        setSignOutError(authErrorMessage(asAuthError(result.error), 'Could not sign out.'));
+        setSigningOut(false);
+        return;
+      }
       window.location.href = '/';
+    } catch (caught) {
+      setSignOutError(authErrorMessage(asAuthError(caught), 'Could not sign out.'));
+      setSigningOut(false);
     }
   }
 
-  if (loading) {
+  if (isPending && !user) {
     return (
       <span className="px-2 text-xs uppercase tracking-wide text-[var(--text-muted)]" aria-live="polite">
         Loading account
@@ -77,6 +80,11 @@ export function AccountMenu({ layout = 'bar' }: { layout?: 'bar' | 'menu' }) {
       >
         {signingOut ? 'Signing out…' : 'Sign out'}
       </button>
+      {signOutError ? (
+        <p role="alert" className="text-xs text-red-400">
+          {signOutError}
+        </p>
+      ) : null}
     </div>
   );
 }

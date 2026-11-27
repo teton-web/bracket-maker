@@ -2,17 +2,15 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { AuthCard, AuthError } from '@/components/auth/AuthCard';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { authClient } from '@/lib/auth/client';
 import { asAuthError, authErrorMessage, isSixDigitCode } from '@/lib/auth/messages';
 
-export function ResetPasswordForm() {
+export function ResetPasswordForm({ initialEmail = '' }: { initialEmail?: string }) {
   const router = useRouter();
-  const params = useSearchParams();
-  const initialEmail = params.get('email') ?? '';
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -78,7 +76,7 @@ export function ResetPasswordForm() {
         </Link>
       }
     >
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      <form method="post" action="/auth/reset-password" onSubmit={onSubmit} className="flex flex-col gap-4">
         <div>
           <label htmlFor="email" className="mb-2 block text-sm font-medium">
             Email

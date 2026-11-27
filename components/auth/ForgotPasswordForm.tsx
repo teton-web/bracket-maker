@@ -43,7 +43,7 @@ export function ForgotPasswordForm() {
         </Link>
       }
     >
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      <form method="post" action="/auth/forgot-password" onSubmit={onSubmit} className="flex flex-col gap-4">
         <div>
           <label htmlFor="email" className="mb-2 block text-sm font-medium">
             Email

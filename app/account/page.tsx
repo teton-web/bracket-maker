@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
+import { isAuthConfigured } from '@/lib/auth/env';
 import { getAuth } from '@/lib/auth/server';
 import { sessionUser } from '@/lib/auth/session-user';
 
@@ -9,6 +10,9 @@ export const dynamic = 'force-dynamic';
 export const metadata: Metadata = { title: 'Account' };
 
 export default async function AccountPage() {
+  if (!isAuthConfigured(process.env)) {
+    redirect('/auth/sign-in');
+  }
   const { data } = await getAuth().getSession();
   const user = sessionUser(data);
   if (!user) {

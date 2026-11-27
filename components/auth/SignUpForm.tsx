@@ -51,7 +51,7 @@ export function SignUpForm() {
         </Link>
       }
     >
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      <form method="post" action="/auth/sign-up" onSubmit={onSubmit} className="flex flex-col gap-4">
         <div>
           <label htmlFor="name" className="mb-2 block text-sm font-medium">
             Name

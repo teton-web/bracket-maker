@@ -53,7 +53,7 @@ export function SignInForm() {
         </Link>
       }
     >
-      <form onSubmit={onSubmit} className="flex flex-col gap-4">
+      <form method="post" action="/auth/sign-in" onSubmit={onSubmit} className="flex flex-col gap-4">
         <div>
           <label htmlFor="email" className="mb-2 block text-sm font-medium">
             Email
